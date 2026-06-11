@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- FaceSecureAI Cascade Classifier Placeholder -->
+<!-- In production, replace this with the full OpenCV haarcascade XML file. -->
+<opencv_storage>
+  <cascade>
+    <stageType>BOOST</stageType>
+    <featureType>HAAR</featureType>
+    <height>20</height>
+    <width>20</width>
+    <stageNum>0</stageNum>
+    <stages></stages>
+    <features></features>
+  </cascade>
+</opencv_storage>

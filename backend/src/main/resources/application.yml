@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: FaceSecureAI Backend
+  datasource:
+    url: jdbc:mysql://localhost:3306/facesecureai?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: password
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+# Custom JWT configuration
+app:
+  jwt:
+    secret: 5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437
+    expiration-ms: 86400000 # 24 hours
+  storage:
+    upload-dir: C:/facesecureai/data
+    faces-dir: ${app.storage.upload-dir}/faces
+    snapshots-dir: ${app.storage.upload-dir}/snapshots
+  opencv:
+    # Model path config. In container, these will point to standard locations
+    cascade-path: C:/opencv/data/haarcascades/haarcascade_frontalface_alt.xml
+    onnx-model-path: C:/opencv/data/models/face_recognizer_fast.onnx
+    similarity-threshold: 0.75 # Cosine similarity threshold for matching (or distance equivalent)
+
+# Springdoc OpenAPI configuration
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha

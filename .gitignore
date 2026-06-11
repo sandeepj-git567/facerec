@@ -1,0 +1,17 @@
+# Maven build artifacts
+**/target/
+*.class
+
+# Node dependencies
+**/node_modules/
+**/dist/
+
+# IDE configurations
+.idea/
+*.iml
+.vscode/
+
+# Local data / environments
+*.log
+.env
+.env.local
