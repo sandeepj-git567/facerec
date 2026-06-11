@@ -3,8 +3,8 @@ import axios from 'axios';
 
 const AuthContext = createContext(null);
 
-// Configure backend API base URL
-export const API_BASE_URL = 'http://localhost:8080';
+// Configure backend API base URL dynamically for production deployment
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 axios.defaults.baseURL = API_BASE_URL;
 
 export const AuthProvider = ({ children }) => {
