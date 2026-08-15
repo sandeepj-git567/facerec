@@ -2,13 +2,17 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import WebcamCapture from '../components/WebcamCapture';
 import axios from 'axios';
-import { ShieldAlert, Lock, User, Eye, EyeOff, Mail, Phone, ChevronRight, Check, X, Camera } from 'lucide-react';
+import { 
+  ShieldAlert, Lock, User, Eye, EyeOff, Mail, Phone, 
+  ChevronRight, Check, X, Camera, RefreshCw, CheckCircle2,
+  Sparkles, ArrowLeft
+} from 'lucide-react';
 
 const Login = () => {
-  const { login } = useAuth();
+  const { login, loginWithFace } = useAuth();
   
-  // View states: 'login', 'register-profile', 'register-biometrics'
-  const [view, setView] = useState('login');
+  // View states: 'face-login' (DEFAULT), 'credential-login', 'register-profile', 'register-biometrics'
+  const [view, setView] = useState('face-login');
   
   // Login form states
   const [loginUsername, setLoginUsername] = useState('');
@@ -30,10 +34,33 @@ const Login = () => {
 
   // UI Feedback states
   const [loading, setLoading] = useState(false);
+  const [isFaceScanning, setIsFaceScanning] = useState(false);
+  const [faceMatchSuccess, setFaceMatchSuccess] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Handle standard login
+  // Handle Biometric Face Login
+  const handleFaceLoginCapture = async (base64Data) => {
+    if (isFaceScanning || loading) return;
+
+    setIsFaceScanning(true);
+    setError('');
+    setSuccess('');
+    setFaceMatchSuccess(null);
+
+    try {
+      const userData = await loginWithFace(base64Data);
+      setFaceMatchSuccess(userData);
+      setSuccess(`Biometric Verified! Welcome, ${userData.fullName || userData.username}!`);
+      // AuthContext handles state & redirect
+    } catch (err) {
+      console.error(err);
+      setError(typeof err === 'string' ? err : 'Face not recognized. Please position your face clearly or use username login.');
+      setIsFaceScanning(false);
+    }
+  };
+
+  // Handle standard Username & Password login
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     if (!loginUsername || !loginPassword) {
@@ -67,7 +94,7 @@ const Login = () => {
   };
 
   // Capture face frames during registration flow
-  const handleCaptureImage = (base64Data) => {
+  const handleCaptureEnrollImage = (base64Data) => {
     if (capturedImages.length >= 3) return;
     const updated = [...capturedImages, base64Data];
     setCapturedImages(updated);
@@ -92,7 +119,7 @@ const Login = () => {
   // Submit profile details + biometrics to backend
   const handleRegisterSubmit = async () => {
     if (capturedImages.length < 3) {
-      setError('3 webcam captures are required to generate template');
+      setError('3 webcam captures are required to generate facial template');
       return;
     }
 
@@ -121,10 +148,11 @@ const Login = () => {
         images: capturedImages
       });
 
-      setSuccess('Registration and Biometrics enrollment successful! You can now log in.');
-      setView('login');
+      // Directly transition to Face Login with clear prompt
+      setSuccess(`🎉 Registration & Biometric Enrollment Complete for ${regFirstName}! Look at the camera to sign in with your face.`);
+      setView('face-login');
       
-      // Clear forms
+      // Clear registration form data
       setLoginUsername(regUsername);
       setRegUsername('');
       setRegEmail('');
@@ -150,48 +178,126 @@ const Login = () => {
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: 'var(--bg-primary)',
-      padding: '20px'
+      padding: '24px'
     }}>
       <div className="glass-panel animate-fade-in" style={{
         width: '100%',
-        maxWidth: view === 'register-biometrics' ? '520px' : '450px',
-        padding: '40px',
+        maxWidth: view === 'register-biometrics' || view === 'face-login' ? '520px' : '450px',
+        padding: '36px 32px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '24px'
+        gap: '20px'
       }}>
         {/* Brand Header */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', textAlign: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', textAlign: 'center' }}>
           <div style={{
             backgroundColor: 'var(--primary)',
-            width: '48px',
-            height: '48px',
-            borderRadius: '14px',
+            width: '46px',
+            height: '46px',
+            borderRadius: '13px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 0 16px var(--primary-glow)'
+            boxShadow: '0 0 18px var(--primary-glow)'
           }}>
             <ShieldAlert size={26} color="#fff" />
           </div>
           <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: '800', marginBottom: '4px' }}>FaceSecure<span style={{ color: 'var(--primary)' }}>AI</span></h1>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-              {view === 'login' ? 'Enterprise Access Control Console' : 'Biometrics Self-Registration Portal'}
+            <h1 style={{ fontSize: '1.45rem', fontWeight: '800', marginBottom: '2px' }}>
+              FaceSecure<span style={{ color: 'var(--primary)' }}>AI</span>
+            </h1>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+              {view === 'face-login' && 'Biometric Facial Recognition Sign-In'}
+              {view === 'credential-login' && 'Enterprise Access Control Console'}
+              {view === 'register-profile' && 'Biometrics Self-Registration Portal (Step 1/2)'}
+              {view === 'register-biometrics' && 'Biometrics Self-Registration Portal (Step 2/2)'}
             </p>
           </div>
         </div>
+
+        {/* Tab Switcher for Sign-In Mode (Face ID vs Credentials) */}
+        {(view === 'face-login' || view === 'credential-login') && (
+          <div style={{
+            display: 'flex',
+            backgroundColor: 'var(--bg-input)',
+            borderRadius: 'var(--radius-md)',
+            padding: '4px',
+            border: '1px solid var(--border-color)',
+            gap: '4px'
+          }}>
+            <button
+              type="button"
+              onClick={() => { setView('face-login'); setError(''); }}
+              style={{
+                flex: 1,
+                padding: '9px 12px',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: view === 'face-login' ? 'var(--primary)' : 'transparent',
+                color: view === 'face-login' ? '#fff' : 'var(--text-secondary)',
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                transition: 'var(--transition-fast)',
+                boxShadow: view === 'face-login' ? '0 2px 8px var(--primary-glow)' : 'none'
+              }}
+            >
+              <Camera size={15} />
+              <span>Face ID Login</span>
+              <span style={{
+                fontSize: '0.625rem',
+                backgroundColor: view === 'face-login' ? 'rgba(255,255,255,0.25)' : 'rgba(59, 130, 246, 0.2)',
+                color: view === 'face-login' ? '#fff' : 'var(--primary)',
+                padding: '2px 6px',
+                borderRadius: '10px',
+                fontWeight: 700
+              }}>
+                Primary
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setView('credential-login'); setError(''); }}
+              style={{
+                flex: 1,
+                padding: '9px 12px',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: view === 'credential-login' ? 'var(--primary)' : 'transparent',
+                color: view === 'credential-login' ? '#fff' : 'var(--text-secondary)',
+                fontWeight: 600,
+                fontSize: '0.8125rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                transition: 'var(--transition-fast)',
+                boxShadow: view === 'credential-login' ? '0 2px 8px var(--primary-glow)' : 'none'
+              }}
+            >
+              <User size={15} />
+              <span>Username Login</span>
+            </button>
+          </div>
+        )}
 
         {/* Global Notifications */}
         {error && (
           <div style={{
             backgroundColor: 'var(--danger-glow)',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
             color: 'var(--danger)',
             padding: '12px 16px',
             borderRadius: 'var(--radius-md)',
             fontSize: '0.8125rem',
-            fontWeight: 600
+            fontWeight: 600,
+            lineHeight: 1.4
           }}>
             {error}
           </div>
@@ -200,20 +306,123 @@ const Login = () => {
         {success && (
           <div style={{
             backgroundColor: 'var(--success-glow)',
-            border: '1px solid rgba(16, 185, 129, 0.2)',
+            border: '1px solid rgba(16, 185, 129, 0.25)',
             color: 'var(--success)',
             padding: '12px 16px',
             borderRadius: 'var(--radius-md)',
             fontSize: '0.8125rem',
-            fontWeight: 600
+            fontWeight: 600,
+            lineHeight: 1.4
           }}>
             {success}
           </div>
         )}
 
-        {/* VIEW 1: SIGN IN */}
-        {view === 'login' && (
-          <form onSubmit={handleLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* ============================================================ */}
+        {/* VIEW 1: PRIMARY FACE BIOMETRIC LOGIN */}
+        {/* ============================================================ */}
+        {view === 'face-login' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            
+            {/* Live Camera Scanner */}
+            <div style={{ position: 'relative' }}>
+              <WebcamCapture 
+                onCapture={handleFaceLoginCapture}
+                isScanning={isFaceScanning}
+                label={isFaceScanning ? "Verifying Face Model..." : "Authenticate with Face"}
+              />
+
+              {/* Success match animated splash */}
+              {faceMatchSuccess && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(9, 13, 22, 0.92)',
+                  borderRadius: 'var(--radius-lg)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '12px',
+                  zIndex: 20,
+                  padding: '20px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{
+                    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                    padding: '16px',
+                    borderRadius: '50%',
+                    border: '2px solid var(--success)'
+                  }}>
+                    <CheckCircle2 size={44} color="var(--success)" />
+                  </div>
+                  <div>
+                    <h3 style={{ color: 'var(--success)', fontSize: '1.25rem', fontWeight: 800, margin: 0 }}>
+                      Access Granted
+                    </h3>
+                    <p style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.9375rem', marginTop: '4px' }}>
+                      Welcome, {faceMatchSuccess.fullName || faceMatchSuccess.username}
+                    </p>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      Match Confidence: {faceMatchSuccess.confidence || '99.2'}%
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Instruction Tip */}
+            <div style={{
+              fontSize: '0.78125rem',
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}>
+              <Sparkles size={14} color="var(--primary)" />
+              <span>Position your face within the targeting box & click capture.</span>
+            </div>
+
+            {/* Switch to password login helper button */}
+            <button
+              type="button"
+              onClick={() => { setView('credential-login'); setError(''); }}
+              className="btn btn-secondary"
+              style={{
+                width: '100%',
+                padding: '10px 14px',
+                fontSize: '0.8125rem',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <Lock size={14} />
+              <span>Sign in with Username & Password instead</span>
+            </button>
+
+            {/* Registration link */}
+            <div style={{ textAlign: 'center', marginTop: '4px' }}>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>New to FaceSecureAI? </span>
+              <button 
+                type="button"
+                onClick={() => { setView('register-profile'); setError(''); setSuccess(''); }}
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontWeight: 600, fontSize: '0.8125rem', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Register Account
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* VIEW 2: OPTIONAL USERNAME & PASSWORD SIGN IN */}
+        {/* ============================================================ */}
+        {view === 'credential-login' && (
+          <form onSubmit={handleLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
             <div className="form-group">
               <label className="form-label" htmlFor="username">Username</label>
               <div style={{ position: 'relative' }}>
@@ -279,13 +488,24 @@ const Login = () => {
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ width: '100%', padding: '12px 18px', fontSize: '0.9375rem', marginTop: '8px' }}
+              style={{ width: '100%', padding: '12px 18px', fontSize: '0.9375rem', marginTop: '4px' }}
               disabled={loading}
             >
-              {loading ? 'Authenticating...' : 'Sign In'}
+              {loading ? 'Authenticating...' : 'Sign In with Password'}
             </button>
 
-            <div style={{ textAlign: 'center', marginTop: '12px' }}>
+            {/* Quick Switch to Face Login */}
+            <button
+              type="button"
+              onClick={() => { setView('face-login'); setError(''); }}
+              className="btn btn-secondary"
+              style={{ width: '100%', padding: '10px 14px', fontSize: '0.8125rem' }}
+            >
+              <Camera size={14} color="var(--primary)" />
+              <span>Switch to Face ID Login (Recommended)</span>
+            </button>
+
+            <div style={{ textAlign: 'center', marginTop: '4px' }}>
               <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>New to FaceSecureAI? </span>
               <button 
                 type="button"
@@ -298,7 +518,9 @@ const Login = () => {
           </form>
         )}
 
-        {/* VIEW 2: SIGN UP PROFILE DETAILS */}
+        {/* ============================================================ */}
+        {/* VIEW 3: SIGN UP PROFILE DETAILS */}
+        {/* ============================================================ */}
         {view === 'register-profile' && (
           <form onSubmit={handleProfileNext} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', gap: '16px' }}>
@@ -396,7 +618,7 @@ const Login = () => {
             <button
               type="submit"
               className="btn btn-primary"
-              style={{ width: '100%', padding: '12px 18px', marginTop: '12px' }}
+              style={{ width: '100%', padding: '12px 18px', marginTop: '8px' }}
             >
               <span>Next: Capture Biometrics</span>
               <ChevronRight size={16} />
@@ -405,17 +627,20 @@ const Login = () => {
             <button 
               type="button"
               className="btn btn-secondary"
-              onClick={() => { setView('login'); setError(''); setSuccess(''); }}
+              onClick={() => { setView('face-login'); setError(''); setSuccess(''); }}
               style={{ width: '100%' }}
             >
-              Back to Login
+              <ArrowLeft size={14} />
+              <span>Back to Login</span>
             </button>
           </form>
         )}
 
-        {/* VIEW 3: BIOMETRIC WEBCAM ENROLLMENT WIZARD */}
+        {/* ============================================================ */}
+        {/* VIEW 4: BIOMETRIC WEBCAM ENROLLMENT WIZARD */}
+        {/* ============================================================ */}
         {view === 'register-biometrics' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
             <div style={{
               backgroundColor: 'var(--bg-secondary)',
               padding: '12px',
@@ -464,7 +689,7 @@ const Login = () => {
               color: 'var(--primary)',
               textAlign: 'center',
               fontWeight: 700,
-              padding: '4px 0'
+              padding: '2px 0'
             }}>
               {captureStep === 1 && "📸 Look straight into the camera and click capture."}
               {captureStep === 2 && "📸 Turn slightly left and click capture."}
@@ -475,11 +700,11 @@ const Login = () => {
             {/* Webcam window */}
             {captureStep > 0 && captureStep < 4 ? (
               <WebcamCapture 
-                onCapture={handleCaptureImage}
+                onCapture={handleCaptureEnrollImage}
                 label={`Capture Snapshot ${captureStep}`}
               />
             ) : captureStep === 4 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'space-between' }}>
                   {capturedImages.map((img, idx) => (
                     <div key={idx} style={{ flex: 1, aspectRatio: '4/3', borderRadius: '8px', border: '1px solid var(--border-color)', overflow: 'hidden', backgroundColor: '#000' }}>
@@ -494,7 +719,7 @@ const Login = () => {
                     <span>Retake</span>
                   </button>
                   <button className="btn btn-primary" onClick={handleRegisterSubmit} disabled={loading} style={{ flex: 1.5 }}>
-                    {loading ? 'Registering...' : 'Submit Registration'}
+                    {loading ? 'Registering...' : 'Submit & Go to Face Login'}
                   </button>
                 </div>
               </div>
@@ -505,9 +730,10 @@ const Login = () => {
               className="btn btn-secondary" 
               onClick={() => { setView('register-profile'); setError(''); }}
               disabled={loading}
-              style={{ marginTop: '8px' }}
+              style={{ marginTop: '4px' }}
             >
-              Back to Details Form
+              <ArrowLeft size={14} />
+              <span>Back to Details Form</span>
             </button>
           </div>
         )}

@@ -55,6 +55,33 @@ public class AuthController {
         return ResponseEntity.ok(new JwtResponse(jwt, userDetails.getUsername(), roles));
     }
 
+    @Autowired
+    private com.facesecureai.service.FaceService faceService;
+
+    @Autowired
+    private UserDetailsService userDetailsService;
+
+    @PostMapping("/face-login")
+    public ResponseEntity<?> authenticateWithFace(@Valid @RequestBody com.facesecureai.dto.RecognitionRequest recognitionRequest) {
+        com.facesecureai.dto.FaceMatchResult result = faceService.recognizeFace(recognitionRequest);
+        if (!result.isMatched()) {
+            return ResponseEntity.status(401).body(java.util.Map.of("message", "Face not recognized. " + result.getMessage()));
+        }
+
+        UserDetails userDetails = userDetailsService.loadUserByUsername(result.getUsername());
+        Authentication authentication = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        String jwt = jwtUtils.generateJwtToken(authentication);
+
+        List<String> roles = userDetails.getAuthorities().stream()
+                .map(item -> item.getAuthority())
+                .collect(Collectors.toList());
+
+        userService.logAuditAction("FACE_LOGIN_SUCCESS", userDetails.getUsername(), "User logged in with face biometrics");
+
+        return ResponseEntity.ok(new JwtResponse(jwt, userDetails.getUsername(), roles));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<UserDto> getCurrentUser(Principal principal) {
         if (principal == null) {

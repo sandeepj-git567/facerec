@@ -40,6 +40,23 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const loginWithFace = async (base64Image, optionalDetails = {}) => {
+    try {
+      const response = await axios.post('/api/auth/face-login', { 
+        image: base64Image,
+        ...optionalDetails 
+      });
+      const userData = response.data;
+      
+      localStorage.setItem('facesecure_user', JSON.stringify(userData));
+      axios.defaults.headers.common['Authorization'] = `Bearer ${userData.token}`;
+      setUser(userData);
+      return userData;
+    } catch (error) {
+      throw error.response?.data?.message || 'Face authentication failed. Please retry or sign in with your username.';
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('facesecure_user');
     delete axios.defaults.headers.common['Authorization'];
@@ -54,6 +71,7 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     login,
+    loginWithFace,
     logout,
     isAdmin
   };
