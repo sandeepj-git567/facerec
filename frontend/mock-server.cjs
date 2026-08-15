@@ -74,6 +74,129 @@ const getRequesterRole = (req) => {
   return { username: 'employee', isAdmin: false, userId: 2 };
 };
 
+// ==========================================
+// BIOMETRIC VECTOR & SIMILARITY COMPARATOR
+// ==========================================
+const computeCosineSimilarity = (v1, v2) => {
+  if (!v1 || !v2 || v1.length === 0 || v2.length === 0) return 0;
+  let dot = 0, n1 = 0, n2 = 0;
+  const len = Math.min(v1.length, v2.length);
+  for (let i = 0; i < len; i++) {
+    dot += v1[i] * v2[i];
+    n1 += v1[i] * v1[i];
+    n2 += v2[i] * v2[i];
+  }
+  if (n1 === 0 || n2 === 0) return 0;
+  return dot / (Math.sqrt(n1) * Math.sqrt(n2));
+};
+
+const computeVectorFromBase64 = (base64Str) => {
+  if (!base64Str || typeof base64Str !== 'string') return new Array(64).fill(0);
+  const clean = base64Str.includes(',') ? base64Str.split(',')[1] : base64Str;
+  const buffer = Buffer.from(clean, 'base64');
+  if (buffer.length < 300) return new Array(64).fill(0);
+
+  const chunkSize = Math.floor(buffer.length / 64);
+  const vector = new Array(64).fill(0);
+  let normSum = 0;
+  for (let i = 0; i < 64; i++) {
+    let sum = 0;
+    const start = i * chunkSize;
+    const end = Math.min(buffer.length, start + chunkSize);
+    for (let j = start; j < end; j++) {
+      sum += buffer[j];
+    }
+    const avg = sum / Math.max(1, end - start);
+    vector[i] = avg;
+    normSum += avg * avg;
+  }
+  const norm = Math.sqrt(normSum) || 1;
+  return vector.map(v => v / norm);
+};
+
+const matchFaceBiometrics = (scanVector, hasFaceFlag) => {
+  // If explicitly flagged as no face, or vector is empty
+  if (hasFaceFlag === false || !scanVector || scanVector.length === 0) {
+    return {
+      matched: false,
+      confidence: 0,
+      matchedUser: null,
+      status: 'FAILURE',
+      message: 'No face detected in scan frame. Please position face clearly in the box.'
+    };
+  }
+
+  if (!db.face_embeddings || db.face_embeddings.length === 0) {
+    return {
+      matched: false,
+      confidence: 0,
+      matchedUser: null,
+      status: 'UNKNOWN',
+      message: 'No facial models registered in database. Access Denied.'
+    };
+  }
+
+  let bestSimilarity = 0;
+  let bestUser = null;
+
+  for (const enrolled of db.face_embeddings) {
+    const user = db.users.find(u => u.id === enrolled.userId);
+    if (!user) continue;
+
+    // Check against all enrolled template vectors for this user
+    let userMaxSim = 0;
+    if (enrolled.vectors && Array.isArray(enrolled.vectors) && enrolled.vectors.length > 0) {
+      for (const tVec of enrolled.vectors) {
+        const sim = computeCosineSimilarity(scanVector, tVec);
+        if (sim > userMaxSim) userMaxSim = sim;
+      }
+    } else if (enrolled.templates && Array.isArray(enrolled.templates)) {
+      for (const tImg of enrolled.templates) {
+        const tVec = computeVectorFromBase64(tImg);
+        const sim = computeCosineSimilarity(scanVector, tVec);
+        if (sim > userMaxSim) userMaxSim = sim;
+      }
+    }
+
+    if (userMaxSim > bestSimilarity) {
+      bestSimilarity = userMaxSim;
+      bestUser = user;
+    }
+  }
+
+  // Convert Cosine Similarity into dynamic confidence percentage
+  let confidence = 0;
+  if (bestSimilarity >= 0.85) {
+    confidence = 88.0 + (bestSimilarity - 0.85) * 80.0;
+  } else if (bestSimilarity >= 0.70) {
+    confidence = 68.0 + (bestSimilarity - 0.70) * 133.3;
+  } else {
+    confidence = Math.max(0, bestSimilarity * 70.0);
+  }
+  confidence = Math.min(99.4, Math.round(confidence * 10) / 10);
+
+  // STRICT THRESHOLD: Must achieve at least 75% confidence (and similarity >= 0.74)
+  const isMatch = bestSimilarity >= 0.74 && confidence >= 75.0 && bestUser != null;
+
+  if (isMatch) {
+    return {
+      matched: true,
+      confidence,
+      matchedUser: bestUser,
+      status: 'SUCCESS',
+      message: `Face match verified (${confidence}%). Welcome, ${bestUser.firstName}!`
+    };
+  } else {
+    return {
+      matched: false,
+      confidence,
+      matchedUser: bestUser,
+      status: 'UNKNOWN',
+      message: `Face not recognized (Similarity: ${confidence}%). Unregistered face or mismatch.`
+    };
+  }
+};
+
 const server = http.createServer((req, res) => {
   // CORS configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -135,44 +258,27 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(body);
         const scanFrame = payload.image;
+        const scanVector = payload.vector || computeVectorFromBase64(scanFrame);
+        const hasFaceFlag = payload.hasFace !== undefined ? payload.hasFace : true;
         
         if (!scanFrame) {
           sendJSON(res, 400, { message: 'No face frame snapshot provided for authentication.' });
           return;
         }
 
-        if (db.face_embeddings.length === 0) {
-          sendJSON(res, 401, { message: 'No facial models registered in database. Please register first or use username login.' });
+        // Run Biometric Matcher
+        const matchResult = matchFaceBiometrics(scanVector, hasFaceFlag);
+
+        if (!matchResult.matched) {
+          sendJSON(res, 401, { 
+            matched: false,
+            confidence: matchResult.confidence,
+            message: matchResult.message || 'Face not recognized. Please align your face inside the camera frame or use username login.'
+          });
           return;
         }
 
-        // Biometric Comparator:
-        // Match against enrolled profiles. If username or userId is provided, match that profile, else match latest enrolled active user.
-        let matchProfile = null;
-        if (payload.username) {
-          matchProfile = db.face_embeddings.find(fe => fe.username === payload.username);
-        } else if (payload.userId) {
-          matchProfile = db.face_embeddings.find(fe => fe.userId === payload.userId);
-        }
-        
-        if (!matchProfile) {
-          // Find the last enrolled user with active status
-          for (let i = db.face_embeddings.length - 1; i >= 0; i--) {
-            const fe = db.face_embeddings[i];
-            const u = db.users.find(usr => usr.id === fe.userId);
-            if (u && u.status === 'ACTIVE') {
-              matchProfile = fe;
-              break;
-            }
-          }
-        }
-
-        if (!matchProfile) {
-          sendJSON(res, 401, { message: 'Face not recognized. Please retry or sign in with your username.' });
-          return;
-        }
-
-        const matchedUser = db.users.find(u => u.id === matchProfile.userId);
+        const matchedUser = matchResult.matchedUser;
         if (!matchedUser || matchedUser.status !== 'ACTIVE') {
           sendJSON(res, 403, { message: 'Access Denied: Matched account is suspended or inactive.' });
           return;
@@ -180,7 +286,7 @@ const server = http.createServer((req, res) => {
 
         const mockToken = matchedUser.username === 'admin' ? 'admin-jwt-token-signature' : `token-for-user-${matchedUser.username}`;
 
-        console.log(`[Face Auth] Face login authenticated successfully for user: ${matchedUser.username}`);
+        console.log(`[Face Auth] Authenticated user: ${matchedUser.username} with confidence: ${matchResult.confidence}%`);
 
         sendJSON(res, 200, {
           token: mockToken,
@@ -189,8 +295,8 @@ const server = http.createServer((req, res) => {
           fullName: `${matchedUser.firstName} ${matchedUser.lastName}`,
           userId: matchedUser.id,
           matched: true,
-          confidence: 99.2,
-          message: `Biometric face verified. Welcome, ${matchedUser.firstName}!`
+          confidence: matchResult.confidence,
+          message: `Biometric face verified (${matchResult.confidence}%). Welcome, ${matchedUser.firstName}!`
         });
       } catch (e) {
         sendJSON(res, 400, { message: 'Biometric scan frame parsing error' });
@@ -303,7 +409,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
-        const { userId, images } = payload;
+        const { userId, images, vectors } = payload;
         
         const user = db.users.find(u => u.id === userId);
         if (!user) {
@@ -314,16 +420,22 @@ const server = http.createServer((req, res) => {
         // Clean previous enrollments for fresh registration
         db.face_embeddings = db.face_embeddings.filter(fe => fe.userId !== userId);
         
-        // Save base64 face snapshots (actual image bytes) to db
+        // Compute vectors for images if not supplied
+        const computedVectors = vectors && vectors.length > 0 
+          ? vectors 
+          : (images || []).map(img => computeVectorFromBase64(img));
+
+        // Save base64 face snapshots and mathematical vectors to db
         db.face_embeddings.push({
           userId,
           username: user.username,
           fullName: `${user.firstName} ${user.lastName}`,
-          templates: images // array of base64 images
+          templates: images, // array of base64 images
+          vectors: computedVectors // array of 64-float vectors
         });
         
         saveDb();
-        console.log(`[Mock Biometrics] Successfully enrolled actual face templates for: ${user.username}`);
+        console.log(`[Mock Biometrics] Successfully enrolled face templates & vectors for: ${user.username}`);
         sendJSON(res, 200, { success: true, message: 'Actual face templates enrolled successfully!' });
       } catch (e) {
         sendJSON(res, 400, { message: 'Error processing enrollment data' });
@@ -338,28 +450,27 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(body);
-        const scanFrame = payload.image; // scan base64 image
-        
-        // BIOMETRIC COMPARATOR SIMULATION:
-        // Match them to the most recently registered user.
-        if (db.face_embeddings.length === 0) {
+        const scanFrame = payload.image;
+        const scanVector = payload.vector || computeVectorFromBase64(scanFrame);
+        const hasFaceFlag = payload.hasFace !== undefined ? payload.hasFace : true;
+
+        const matchResult = matchFaceBiometrics(scanVector, hasFaceFlag);
+
+        if (!matchResult.matched) {
           sendJSON(res, 200, {
             matched: false,
-            confidence: 28.5,
-            status: 'UNKNOWN',
-            message: 'No facial models registered in database. Access Denied.'
+            confidence: matchResult.confidence,
+            status: matchResult.status || 'UNKNOWN',
+            message: matchResult.message || 'No face match detected. Access Denied.'
           });
           return;
         }
 
-        // Find the matched profile (last enrolled)
-        const matchProfile = db.face_embeddings[db.face_embeddings.length - 1];
-        const matchedUser = db.users.find(u => u.id === matchProfile.userId);
-        
+        const matchedUser = matchResult.matchedUser;
         if (!matchedUser || matchedUser.status !== 'ACTIVE') {
           sendJSON(res, 200, {
             matched: false,
-            confidence: 32.1,
+            confidence: matchResult.confidence,
             status: 'FAILURE',
             message: 'Access Denied: Matched account is suspended or inactive.'
           });
@@ -391,12 +502,12 @@ const server = http.createServer((req, res) => {
         
         sendJSON(res, 200, {
           matched: true,
-          confidence: 98.7,
+          confidence: matchResult.confidence,
           userId: matchedUser.id,
           username: matchedUser.username,
           fullName: `${matchedUser.firstName} ${matchedUser.lastName}`,
           status: 'SUCCESS',
-          message: `Biometrics match verified. Welcome, ${matchedUser.firstName}! Action: ${attendanceStatus}`
+          message: `Biometrics match verified (${matchResult.confidence}%). Welcome, ${matchedUser.firstName}! Action: ${attendanceStatus}`
         });
       } catch (e) {
         sendJSON(res, 400, { message: 'Biometric scan parsing error' });

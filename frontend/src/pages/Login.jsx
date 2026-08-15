@@ -30,6 +30,7 @@ const Login = () => {
   
   // Biometrics enrollment states
   const [capturedImages, setCapturedImages] = useState([]);
+  const [capturedVectors, setCapturedVectors] = useState([]);
   const [captureStep, setCaptureStep] = useState(0); // 0: not started, 1, 2, 3: capturing, 4: captured all 3
 
   // UI Feedback states
@@ -40,8 +41,15 @@ const Login = () => {
   const [success, setSuccess] = useState('');
 
   // Handle Biometric Face Login
-  const handleFaceLoginCapture = async (base64Data) => {
+  const handleFaceLoginCapture = async (base64Data, analysis) => {
     if (isFaceScanning || loading) return;
+
+    // Strict Client-Side Pre-Check
+    if (analysis && analysis.hasFace === false) {
+      setError('⚠️ No face detected in camera view. Please align your face inside the box and ensure good lighting.');
+      setIsFaceScanning(false);
+      return;
+    }
 
     setIsFaceScanning(true);
     setError('');
@@ -49,13 +57,16 @@ const Login = () => {
     setFaceMatchSuccess(null);
 
     try {
-      const userData = await loginWithFace(base64Data);
+      const userData = await loginWithFace(base64Data, {
+        vector: analysis?.vector,
+        hasFace: analysis?.hasFace
+      });
       setFaceMatchSuccess(userData);
       setSuccess(`Biometric Verified! Welcome, ${userData.fullName || userData.username}!`);
       // AuthContext handles state & redirect
     } catch (err) {
       console.error(err);
-      setError(typeof err === 'string' ? err : 'Face not recognized. Please position your face clearly or use username login.');
+      setError(typeof err === 'string' ? err : 'Face not recognized. Biometric similarity is too low. Please retry or sign in with your username.');
       setIsFaceScanning(false);
     }
   };
@@ -90,14 +101,23 @@ const Login = () => {
     setError('');
     setView('register-biometrics');
     setCapturedImages([]);
+    setCapturedVectors([]);
     setCaptureStep(1);
   };
 
   // Capture face frames during registration flow
-  const handleCaptureEnrollImage = (base64Data) => {
+  const handleCaptureEnrollImage = (base64Data, analysis) => {
     if (capturedImages.length >= 3) return;
+
+    if (analysis && analysis.hasFace === false) {
+      setError(`⚠️ No face detected in snapshot ${captureStep}. Please look clearly at the camera.`);
+      return;
+    }
+
     const updated = [...capturedImages, base64Data];
+    const updatedVectors = [...capturedVectors, analysis?.vector || []];
     setCapturedImages(updated);
+    setCapturedVectors(updatedVectors);
 
     if (updated.length === 1) {
       setCaptureStep(2);
@@ -113,6 +133,7 @@ const Login = () => {
 
   const resetCaptures = () => {
     setCapturedImages([]);
+    setCapturedVectors([]);
     setCaptureStep(1);
   };
 
@@ -142,10 +163,11 @@ const Login = () => {
       const userResponse = await axios.post('/api/users', userPayload);
       const createdUser = userResponse.data;
 
-      // 2. Enroll face images
+      // 2. Enroll face images & vectors
       await axios.post('/api/faces/enroll', {
         userId: createdUser.id,
-        images: capturedImages
+        images: capturedImages,
+        vectors: capturedVectors
       });
 
       // Directly transition to Face Login with clear prompt
@@ -161,6 +183,7 @@ const Login = () => {
       setRegPhone('');
       setRegPassword('');
       setCapturedImages([]);
+      setCapturedVectors([]);
       setCaptureStep(0);
     } catch (err) {
       console.error(err);

@@ -15,7 +15,7 @@ const ScanStation = () => {
   const scanTimerRef = useRef(null);
 
   // Function to process a single camera frame snapshot
-  const handleCapture = async (base64Image) => {
+  const handleCapture = async (base64Image, analysis) => {
     if (scanning) return;
     
     setScanning(true);
@@ -24,6 +24,8 @@ const ScanStation = () => {
     try {
       const response = await axios.post('/api/faces/recognize', {
         image: base64Image,
+        vector: analysis?.vector,
+        hasFace: analysis?.hasFace,
         deviceInfo: 'Kiosk Camera 01'
       });
 

@@ -8,8 +8,9 @@ const Enrollment = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
   
-  // List of captured base64 images (we require 3)
+  // List of captured base64 images and vectors (we require 3)
   const [capturedImages, setCapturedImages] = useState([]);
+  const [capturedVectors, setCapturedVectors] = useState([]);
   const [captureStep, setCaptureStep] = useState(0); // 0: not started, 1, 2, 3: capturing, 4: captured all 3
   const [message, setMessage] = useState({ text: '', type: '' });
   const [loading, setLoading] = useState(false);
@@ -36,15 +37,23 @@ const Enrollment = () => {
   const handleSelectUser = (user) => {
     setSelectedUser(user);
     setCapturedImages([]);
+    setCapturedVectors([]);
     setCaptureStep(0);
     setMessage({ text: '', type: '' });
   };
 
-  const handleCaptureImage = (base64Data) => {
+  const handleCaptureImage = (base64Data, analysis) => {
     if (capturedImages.length >= 3) return;
 
+    if (analysis && analysis.hasFace === false) {
+      setMessage({ text: `⚠️ No face detected in frame. ${analysis.reason || 'Please face the camera directly.'}`, type: 'danger' });
+      return;
+    }
+
     const updated = [...capturedImages, base64Data];
+    const updatedVectors = [...capturedVectors, analysis?.vector || []];
     setCapturedImages(updated);
+    setCapturedVectors(updatedVectors);
 
     if (updated.length === 1) {
       setCaptureStep(2);
@@ -60,6 +69,7 @@ const Enrollment = () => {
 
   const resetCaptures = () => {
     setCapturedImages([]);
+    setCapturedVectors([]);
     setCaptureStep(1);
     setMessage({ text: 'Look straight into the lens for Photo 1.', type: 'info' });
   };
@@ -73,10 +83,12 @@ const Enrollment = () => {
     try {
       await axios.post('/api/faces/enroll', {
         userId: selectedUser.id,
-        images: capturedImages
+        images: capturedImages,
+        vectors: capturedVectors
       });
       setMessage({ text: 'Biometric enrollment completed successfully! User is now active.', type: 'success' });
       setCapturedImages([]);
+      setCapturedVectors([]);
       setCaptureStep(0);
       
       // Sync users list to refresh status indicators
