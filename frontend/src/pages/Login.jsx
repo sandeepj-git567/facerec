@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import WebcamCapture from '../components/WebcamCapture';
-import axios from 'axios';
+import { apiService } from '../services/apiService';
 import { 
   ShieldAlert, Lock, User, Eye, EyeOff, Mail, Phone, 
   ChevronRight, Check, X, Camera, RefreshCw, CheckCircle2,
@@ -170,15 +170,10 @@ const Login = () => {
         roles: regRole === 'ROLE_ADMIN' ? ['ROLE_ADMIN', 'ROLE_USER'] : ['ROLE_USER']
       };
 
-      const userResponse = await axios.post('/api/users', userPayload);
-      const createdUser = userResponse.data;
+      const createdUser = await apiService.registerUser(userPayload);
 
       // 2. Enroll face images & 128-D vectors
-      await axios.post('/api/faces/enroll', {
-        userId: createdUser.id,
-        images: capturedImages,
-        vectors: capturedVectors
-      });
+      await apiService.enrollFace(createdUser.id, capturedImages, capturedVectors);
 
       // Directly transition to Face Login with clear prompt
       setSuccess(`🎉 Registration & Biometric Enrollment Complete for ${regFirstName}! Look at the camera to sign in with your face.`);

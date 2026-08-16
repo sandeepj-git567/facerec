@@ -1,11 +1,7 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import axios from 'axios';
+import { apiService } from '../services/apiService';
 
 const AuthContext = createContext(null);
-
-// Configure backend API base URL dynamically for production deployment
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-axios.defaults.baseURL = API_BASE_URL;
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -18,7 +14,6 @@ export const AuthProvider = ({ children }) => {
       try {
         const parsed = JSON.parse(storedUser);
         setUser(parsed);
-        axios.defaults.headers.common['Authorization'] = `Bearer ${parsed.token}`;
       } catch (e) {
         localStorage.removeItem('facesecure_user');
       }
@@ -28,38 +23,28 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      const response = await axios.post('/api/auth/login', { username, password });
-      const userData = response.data;
-      
+      const userData = await apiService.login(username, password);
       localStorage.setItem('facesecure_user', JSON.stringify(userData));
-      axios.defaults.headers.common['Authorization'] = `Bearer ${userData.token}`;
       setUser(userData);
       return userData;
     } catch (error) {
-      throw error.response?.data?.message || 'Login failed. Please verify credentials.';
+      throw error.message || error || 'Login failed. Please verify credentials.';
     }
   };
 
   const loginWithFace = async (base64Image, optionalDetails = {}) => {
     try {
-      const response = await axios.post('/api/auth/face-login', { 
-        image: base64Image,
-        ...optionalDetails 
-      });
-      const userData = response.data;
-      
+      const userData = await apiService.loginWithFace(base64Image, optionalDetails);
       localStorage.setItem('facesecure_user', JSON.stringify(userData));
-      axios.defaults.headers.common['Authorization'] = `Bearer ${userData.token}`;
       setUser(userData);
       return userData;
     } catch (error) {
-      throw error.response?.data?.message || 'Face authentication failed. Please retry or sign in with your username.';
+      throw error.message || error || 'Face authentication failed. Please retry or sign in with your username.';
     }
   };
 
   const logout = () => {
     localStorage.removeItem('facesecure_user');
-    delete axios.defaults.headers.common['Authorization'];
     setUser(null);
   };
 

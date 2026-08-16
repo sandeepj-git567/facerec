@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import WebcamCapture from '../components/WebcamCapture';
+import { apiService } from '../services/apiService';
+import { supabase } from '../services/supabaseClient';
 import { UserPlus, Search, HelpCircle, Check, X, Camera, Zap, CheckCircle2 } from 'lucide-react';
 
 const Enrollment = () => {
@@ -23,7 +25,17 @@ const Enrollment = () => {
       const response = await axios.get('/api/users');
       setUsers(response.data);
     } catch (err) {
-      console.error("Failed to load users", err);
+      // Direct Supabase fallback
+      const { data } = await supabase.from('users').select('*');
+      if (data) {
+        setUsers(data.map(u => ({
+          id: u.id,
+          username: u.username,
+          firstName: u.first_name,
+          lastName: u.last_name,
+          status: u.status
+        })));
+      }
     }
   };
 
@@ -84,11 +96,7 @@ const Enrollment = () => {
     setMessage({ text: '', type: '' });
 
     try {
-      await axios.post('/api/faces/enroll', {
-        userId: selectedUser.id,
-        images: capturedImages,
-        vectors: capturedVectors
-      });
+      await apiService.enrollFace(selectedUser.id, capturedImages, capturedVectors);
       setMessage({ text: `🎉 Biometric enrollment completed for ${selectedUser.firstName}! Account is now active.`, type: 'success' });
       resetCaptures();
       
@@ -97,7 +105,7 @@ const Enrollment = () => {
     } catch (error) {
       console.error(error);
       setMessage({ 
-        text: error.response?.data?.message || 'Biometric template generation failed. Ensure your face is centered and clear.', 
+        text: error.message || error || 'Biometric template generation failed. Ensure your face is centered and clear.', 
         type: 'danger' 
       });
     } finally {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
 import WebcamCapture from '../components/WebcamCapture';
+import { apiService } from '../services/apiService';
 import { Camera, CheckCircle2, XCircle, AlertCircle, RefreshCw, Volume2, Radio, ShieldCheck, Zap } from 'lucide-react';
 
 const ScanStation = () => {
@@ -75,14 +75,12 @@ const ScanStation = () => {
     setFlashType(null);
 
     try {
-      const response = await axios.post('/api/faces/recognize', {
-        image: base64Image,
+      const matchData = await apiService.recognizeFace(base64Image, {
         vector: analysis?.vector,
         hasFace: analysis?.hasFace,
         deviceInfo: 'Kiosk Terminal 01'
       });
 
-      const matchData = response.data;
       setResult(matchData);
 
       if (matchData.matched) {
