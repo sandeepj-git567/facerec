@@ -197,6 +197,39 @@ const matchFaceBiometrics = (scanVector, hasFaceFlag) => {
   }
 };
 
+// Python ML AI Microservice Integration Helper
+const callPythonAI = async (endpoint, data) => {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify(data);
+    const options = {
+      hostname: '127.0.0.1',
+      port: 5000,
+      path: endpoint,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 1800
+    };
+    const req = http.request(options, (res) => {
+      let body = '';
+      res.on('data', chunk => body += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch(e) {
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.write(postData);
+    req.end();
+  });
+};
+
 const server = http.createServer((req, res) => {
   // CORS configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
