@@ -1,23 +1,76 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import WebcamCapture from '../components/WebcamCapture';
-import { Camera, CheckCircle2, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Camera, CheckCircle2, XCircle, AlertCircle, RefreshCw, Volume2, Radio, ShieldCheck, Zap } from 'lucide-react';
 
 const ScanStation = () => {
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
-  const [autoScan, setAutoScan] = useState(true);
-  
-  // Flash overlays states: 'success', 'error', 'warning', or null
+  const [autoScan, setAutoScan] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [flashType, setFlashType] = useState(null);
+  const [liveClock, setLiveClock] = useState(new Date().toLocaleTimeString());
 
-  const webcamRef = useRef(null);
   const scanTimerRef = useRef(null);
 
-  // Function to process a single camera frame snapshot
+  // Live Digital Clock ticker
+  useEffect(() => {
+    const clockInterval = setInterval(() => {
+      setLiveClock(new Date().toLocaleTimeString());
+    }, 1000);
+    return () => clearInterval(clockInterval);
+  }, []);
+
+  // Web Audio API Sound Synthesizer
+  const playAudioFeedback = (type = 'success') => {
+    if (!soundEnabled) return;
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'success') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.45);
+      } else {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(240, ctx.currentTime);
+        osc.frequency.setValueAtTime(160, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.45);
+      }
+    } catch (e) {
+      console.warn('Audio chime warning:', e);
+    }
+  };
+
+  // Function to process a camera frame snapshot
   const handleCapture = async (base64Image, analysis) => {
     if (scanning) return;
     
+    // Strict face presence check
+    if (analysis && analysis.hasFace === false) {
+      setResult({
+        matched: false,
+        status: 'FAILURE',
+        message: `⚠️ ${analysis.reason || 'Obstruction detected. Remove hand or align face in frame.'}`
+      });
+      setFlashType('warning');
+      playAudioFeedback('error');
+      return;
+    }
+
     setScanning(true);
     setFlashType(null);
 
@@ -26,17 +79,16 @@ const ScanStation = () => {
         image: base64Image,
         vector: analysis?.vector,
         hasFace: analysis?.hasFace,
-        deviceInfo: 'Kiosk Camera 01'
+        deviceInfo: 'Kiosk Terminal 01'
       });
 
       const matchData = response.data;
       setResult(matchData);
 
-      // Trigger flash animations based on response status
       if (matchData.matched) {
         setFlashType('success');
+        playAudioFeedback('success');
         
-        // Auto-pause for 3.5 seconds on successful clock-in to let user walk through
         if (autoScan) {
           stopScanTimer();
           setTimeout(() => {
@@ -51,15 +103,15 @@ const ScanStation = () => {
         } else {
           setFlashType('error');
         }
+        playAudioFeedback('error');
         
-        // Pause 2 seconds for unknown faces
         if (autoScan) {
           stopScanTimer();
           setTimeout(() => {
             setResult(null);
             setFlashType(null);
             startScanTimer();
-          }, 2000);
+          }, 2500);
         }
       }
     } catch (error) {
@@ -70,6 +122,7 @@ const ScanStation = () => {
         message: 'Network link error or server overload.'
       });
       setFlashType('error');
+      playAudioFeedback('error');
     } finally {
       setScanning(false);
     }
@@ -77,14 +130,12 @@ const ScanStation = () => {
 
   const startScanTimer = () => {
     if (scanTimerRef.current) return;
-    
-    // Set up continuous frame captures (every 1.8s)
     scanTimerRef.current = setInterval(() => {
       const captureBtn = document.querySelector('.scanner-container + button');
       if (captureBtn) {
         captureBtn.click();
       }
-    }, 1800);
+    }, 2200);
   };
 
   const stopScanTimer = () => {
@@ -100,173 +151,204 @@ const ScanStation = () => {
     } else {
       stopScanTimer();
     }
-
-    return () => {
-      stopScanTimer();
-    };
+    return () => stopScanTimer();
   }, [autoScan]);
 
   return (
-    <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+    <div className="animate-fade-in" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '24px',
+      maxWidth: '720px',
+      margin: '0 auto',
+      width: '100%'
+    }}>
       
-      {/* Header */}
-      <div>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0 }}>Recognition Station</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem' }}>Biometric Access Control Kiosk Terminal</p>
+      {/* Header with Terminal Live Status */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0 }}>Kiosk Terminal</h1>
+            <span style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: 'rgba(16, 185, 129, 0.12)',
+              color: 'var(--success)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              fontSize: '0.75rem',
+              fontWeight: 700
+            }}>
+              <Radio size={12} className="animate-pulse" />
+              <span>Supabase Cloud Online</span>
+            </span>
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem', marginTop: '4px' }}>
+            Touch-free facial attendance scanner • Live shift logging
+          </p>
+        </div>
+
+        {/* Live Digital Clock Badge */}
+        <div style={{
+          backgroundColor: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
+          padding: '8px 16px',
+          borderRadius: 'var(--radius-md)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end'
+        }}>
+          <span style={{ fontSize: '1.125rem', fontWeight: 800, color: 'var(--primary)', fontFamily: 'monospace' }}>
+            {liveClock}
+          </span>
+          <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
+            {new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+          </span>
+        </div>
       </div>
 
-      <div className="grid-cols-2">
+      {/* Main Kiosk Camera Station Panel */}
+      <div className="glass-panel" style={{
+        padding: '28px',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '20px',
+        position: 'relative'
+      }}>
         
-        {/* Left Side: Camera view */}
-        <div className="glass-panel" style={{ padding: '24px', position: 'relative' }}>
-          
-          {/* Flash Feedback Overlay */}
-          {flashType && (
-            <div style={{
-              position: 'absolute',
-              top: '24px',
-              left: '24px',
-              right: '24px',
-              bottom: '24px',
-              borderRadius: 'var(--radius-lg)',
-              pointerEvents: 'none',
-              zIndex: 10,
-              boxShadow: flashType === 'success' ? 'inset 0 0 40px var(--success)' :
-                         flashType === 'warning' ? 'inset 0 0 40px var(--warning)' : 'inset 0 0 40px var(--danger)',
-              border: `3px solid ${
-                flashType === 'success' ? 'var(--success)' :
-                flashType === 'warning' ? 'var(--warning)' : 'var(--danger)'
-              }`,
-              animation: 'pulse 1s infinite'
-            }} />
-          )}
+        {/* Toggle Mode Toolbar */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          width: '100%',
+          paddingBottom: '16px',
+          borderBottom: '1px solid var(--border-color)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <ShieldCheck size={18} color="var(--primary)" />
+            <span style={{ fontSize: '0.875rem', fontWeight: 700 }}>Terminal ID: KIOSK-HQ-01</span>
+          </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <span className="form-label">Scanner Terminal Feed</span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600 }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+              <input 
+                type="checkbox" 
+                checked={soundEnabled} 
+                onChange={(e) => setSoundEnabled(e.target.checked)}
+                style={{ accentColor: 'var(--primary)' }}
+              />
+              <Volume2 size={14} />
+              <span>Audio Chime</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.8125rem', color: autoScan ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: 600 }}>
               <input 
                 type="checkbox" 
                 checked={autoScan} 
                 onChange={(e) => setAutoScan(e.target.checked)}
-                style={{ cursor: 'pointer' }}
+                style={{ accentColor: 'var(--primary)' }}
               />
-              <span>Auto-Poll Loop</span>
+              <Zap size={14} />
+              <span>Auto-Scan Radar</span>
             </label>
           </div>
-
-          <WebcamCapture 
-            ref={webcamRef} 
-            onCapture={handleCapture} 
-            isScanning={scanning} 
-            label="Verify Face Now" 
-          />
         </div>
 
-        {/* Right Side: Biometric Match Panel */}
-        <div className="glass-panel" style={{ padding: '32px', display: 'flex', flexDirection: 'column', gap: '24px', justifyContent: 'center' }}>
-          
-          {!result ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-              <div style={{ backgroundColor: 'var(--bg-input)', padding: '24px', borderRadius: '50%', color: 'var(--text-muted)' }}>
-                <Camera size={48} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>Awaiting Face...</h3>
-                <p style={{ fontSize: '0.875rem', maxWidth: '280px', margin: '8px auto 0' }}>
-                  Please position your face clearly in the camera boundary to trigger verification scan.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              
-              {/* Status Header */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '16px',
-                padding: '16px',
-                borderRadius: 'var(--radius-md)',
-                backgroundColor: result.matched ? 'rgba(16, 185, 129, 0.1)' : 
-                                result.status === 'UNKNOWN' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                border: `1px solid ${
-                  result.matched ? 'rgba(16, 185, 129, 0.2)' : 
-                  result.status === 'UNKNOWN' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)'
-                }`
-              }}>
-                {result.matched ? (
-                  <CheckCircle2 size={36} color="var(--success)" />
-                ) : result.status === 'UNKNOWN' ? (
-                  <AlertCircle size={36} color="var(--warning)" />
-                ) : (
-                  <XCircle size={36} color="var(--danger)" />
-                )}
-                <div>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: 800, margin: 0, color: result.matched ? 'var(--success)' : 'var(--text-primary)' }}>
-                    {result.matched ? 'ACCESS GRANTED' : 'ACCESS DENIED'}
-                  </h3>
-                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                    Biometric Check Match
-                  </span>
-                </div>
-              </div>
+        {/* Live Camera Scanner Element */}
+        <div style={{ width: '100%', maxWidth: '520px', position: 'relative' }}>
+          <WebcamCapture 
+            onCapture={handleCapture}
+            isScanning={scanning}
+            label={scanning ? "Matching Facial Vector..." : "⚡ Scan Face to Clock-In / Out"}
+          />
 
-              {/* Match Details */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '20px' }}>
-                
-                {result.matched && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Name</span>
-                      <span style={{ fontWeight: 700, fontSize: '0.9375rem' }}>{result.fullName}</span>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>User ID</span>
-                      <span style={{ fontWeight: 600, fontSize: '0.9375rem' }}>#{result.userId}</span>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Username</span>
-                      <span style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--primary)' }}>@{result.username}</span>
-                    </div>
-                  </>
-                )}
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Similarity Confidence</span>
-                  <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: result.matched ? 'var(--success)' : 'var(--danger)' }}>
-                    {result.confidence > 0 ? `${result.confidence}%` : '0.0%'}
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '4px' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Transaction Detail</span>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 500, textAlign: 'right', maxWidth: '220px' }}>
-                    {result.message}
-                  </span>
-                </div>
-              </div>
-
-              {/* Auto Poll countdown indicator */}
-              {autoScan && (
+          {/* Flash Result Overlays */}
+          {flashType && result && (
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: flashType === 'success' ? 'rgba(9, 13, 22, 0.94)' : 'rgba(9, 13, 22, 0.94)',
+              borderRadius: 'var(--radius-lg)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              padding: '24px',
+              textAlign: 'center',
+              zIndex: 20,
+              animation: 'fadeIn 0.25s ease'
+            }}>
+              {flashType === 'success' ? (
                 <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  fontSize: '0.75rem',
-                  color: 'var(--text-muted)',
-                  marginTop: '12px',
-                  justifyContent: 'center'
+                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
+                  padding: '16px',
+                  borderRadius: '50%',
+                  border: '2px solid var(--success)'
                 }}>
-                  <RefreshCw size={12} className="animate-spin" />
-                  <span>Kiosk auto-monitoring is active. Awaiting next scan frame...</span>
+                  <CheckCircle2 size={48} color="var(--success)" />
+                </div>
+              ) : flashType === 'warning' ? (
+                <div style={{
+                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                  padding: '16px',
+                  borderRadius: '50%',
+                  border: '2px solid var(--warning)'
+                }}>
+                  <AlertCircle size={48} color="var(--warning)" />
+                </div>
+              ) : (
+                <div style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  padding: '16px',
+                  borderRadius: '50%',
+                  border: '2px solid var(--danger)'
+                }}>
+                  <XCircle size={48} color="var(--danger)" />
                 </div>
               )}
 
+              <div>
+                <h3 style={{
+                  fontSize: '1.35rem',
+                  fontWeight: 800,
+                  margin: 0,
+                  color: flashType === 'success' ? 'var(--success)' : flashType === 'warning' ? 'var(--warning)' : 'var(--danger)'
+                }}>
+                  {flashType === 'success' ? 'Biometric Match Verified' : flashType === 'warning' ? 'Access Attention' : 'Access Denied'}
+                </h3>
+                
+                <p style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '1rem', marginTop: '6px' }}>
+                  {result.message}
+                </p>
+
+                {result.matched && (
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                    Identity: {result.fullName} (@{result.username}) • Confidence: {result.confidence}%
+                  </span>
+                )}
+              </div>
+
+              {!autoScan && (
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => { setResult(null); setFlashType(null); }}
+                  style={{ marginTop: '8px', padding: '8px 18px', fontSize: '0.8125rem' }}
+                >
+                  <span>Ready Next Scan</span>
+                </button>
+              )}
             </div>
           )}
-
         </div>
 
       </div>

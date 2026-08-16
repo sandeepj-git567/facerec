@@ -68,17 +68,18 @@ const UserDashboard = ({ setCurrentTab }) => {
   }
 
   const currentStats = stats || {
-    presentCount: 0,
-    lateCount: 0,
+    daysPresent: 0,
+    daysLate: 0,
     pendingQueries: 0,
     attendanceRate: 0.0,
+    recentLogs: [],
     recentScans: [],
     attendanceTrend: {}
   };
 
   // Line Chart Config for Personal Work Trend
-  const trendLabels = Object.keys(currentStats.attendanceTrend);
-  const trendValues = Object.values(currentStats.attendanceTrend);
+  const trendLabels = Object.keys(currentStats.attendanceTrend || { Mon: 1, Tue: 1, Wed: 1, Thu: 1, Fri: 1 });
+  const trendValues = Object.values(currentStats.attendanceTrend || { Mon: 1, Tue: 1, Wed: 1, Thu: 1, Fri: 1 });
 
   const lineChartData = {
     labels: trendLabels,
@@ -223,22 +224,24 @@ const UserDashboard = ({ setCurrentTab }) => {
                 </tr>
               </thead>
               <tbody>
-                {currentStats.recentScans.length === 0 ? (
+                {((currentStats.recentLogs && currentStats.recentLogs.length > 0) ? currentStats.recentLogs : (currentStats.recentScans || [])).length === 0 ? (
                   <tr>
                     <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '24px' }}>
-                      No biometric scans logged.
+                      No biometric scans logged today.
                     </td>
                   </tr>
                 ) : (
-                  currentStats.recentScans.map((scan) => {
-                    const clockInTime = new Date(scan.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                  ((currentStats.recentLogs && currentStats.recentLogs.length > 0) ? currentStats.recentLogs : currentStats.recentScans).map((scan, idx) => {
+                    const clockInTime = scan.clockIn 
+                      ? new Date(scan.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : 'Just now';
                     const clockOutTime = scan.clockOut 
                       ? new Date(scan.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : 'On Shift';
+                      : 'Active Shift';
 
                     return (
-                      <tr key={scan.id}>
-                        <td style={{ fontWeight: 600 }}>{scan.date}</td>
+                      <tr key={scan.id || idx}>
+                        <td style={{ fontWeight: 600 }}>{scan.date || 'Today'}</td>
                         <td style={{ color: 'var(--success)', fontWeight: 600 }}>{clockInTime}</td>
                         <td style={{ fontWeight: 500 }}>{clockOutTime}</td>
                         <td>
